@@ -202,7 +202,11 @@ function voiceScore(v){const t=(v.name+" "+v.voiceURI).toLowerCase();return(/pre
 function voiceLabel(v){const t=(v.name+" "+v.voiceURI).toLowerCase(),q=/premium/.test(t)?"Premium":/enhanced/.test(t)?"Enhanced":"";const n=v.name.replace(/\s*\((premium|enhanced)\)\s*/i," ").trim();return n+(q?" ("+q+")":"")+" · "+v.lang.replace("_","-")}
 function initVoice(){try{zhVoices=speechSynthesis.getVoices().filter(x=>/^(zh|cmn)/i.test(x.lang)).sort((a,b)=>voiceScore(b)-voiceScore(a));voice=zhVoices.find(x=>x.voiceURI===S.voice)||zhVoices[0]||null;canSpeak=!!voice}catch(e){canSpeak=false}}
 try{if("speechSynthesis" in window){initVoice();speechSynthesis.onvoiceschanged=()=>{initVoice();if(view==="settings")renderSettings();else if(flipped)renderStudy()}}}catch(e){}
-function speak(t){if(!canSpeak)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.voice=voice;u.lang=voice.lang;u.rate=S.rate||1;speechSynthesis.speak(u)}catch(e){}}
+function speak(t){if(!canSpeak)return;try{
+  initVoice();if(!voice)return; // use a fresh voice object: iOS can ignore a stale one
+  const say=()=>{const u=new SpeechSynthesisUtterance(t);u.voice=voice;u.lang=voice.lang;u.rate=S.rate||1;speechSynthesis.speak(u)};
+  if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(say,80)}else say();
+}catch(e){}}
 
 function renderStudy(){
   stats();main.textContent="";
@@ -273,7 +277,7 @@ function renderSettings(){
     s3.onchange=()=>{S.voice=s3.value;initVoice();touchS();speak("你好，认字")};
     const l4=el("label",null,"Speed");l4.htmlFor="rate";const s4=el("select");s4.id="rate";[[.8,"Slower"],[.9,"A little slower"],[1,"Normal"],[1.1,"A little faster"]].forEach(([v,t])=>{const o=el("option",null,t);o.value=v;s4.append(o)});s4.value=S.rate||1;s4.onchange=()=>{S.rate=+s4.value;touchS();speak("你好，认字")};
     const tb=el("button","pill","Test voice");tb.type="button";tb.style.justifySelf="start";tb.onclick=()=>speak("你好，认字");
-    vf.append(l3,s3,l4,s4,tb,el("p",null,"The best voice on this device is picked automatically. For a smoother one, download an Enhanced or Premium Chinese voice in your iPhone's Settings, under Accessibility, Spoken Content, Voices."))}
+    vf.append(l3,s3,l4,s4,tb,el("p",null,"The best voice on this device is picked automatically. For a smoother one, download an Enhanced or Premium Chinese voice in your iPhone's Settings, under Accessibility, Read & Speak (or Spoken Content), Voices."))}
   const back=el("button","pill","Back to cards");back.type="button";back.style.justifySelf="start";back.onclick=()=>toggle();
   const rs=el("div","field"),rb=el("button","danger","Reset all progress");rb.type="button";
   rb.onclick=()=>{if(rb.dataset.armed){reset();toggle()}else{rb.dataset.armed=1;rb.textContent="Tap again to erase everything"}};
@@ -311,7 +315,7 @@ function restore(text){ // newest answer per word wins, so restoring never loses
   let o;try{o=JSON.parse(text)}catch(e){return"That isn't a valid backup. Paste the whole text and try again."}
   if(!o||o.app!=="renzi"||typeof o.p!=="object")return"That isn't a valid backup. Paste the whole text and try again.";
   let n=0;for(const w in o.p){const r=o.p[w];if(order.has(w)&&r&&typeof r.d==="number"&&typeof r.t==="number"&&(!P[w]||r.t>P[w].t)){P[w]=r;mark(w);n++}}
-  if(o.s&&(o.s.t||0)>(S.t||0)){S={...S,...o.s};settingsDirty=true}
+  if(o.s&&(o.s.t||0)>(S.t||0)){S={...S,...o.s};settingsDirty=true;initVoice()}
   saveLocal();undoRec=null;cur=null;flipped=false;last=null;stats();
   return"Restored "+n.toLocaleString()+" word"+(n===1?"":"s")+".";
 }
@@ -359,7 +363,7 @@ async function connect(){
     const snap=await db.collection(`data/users/${uid}`).get();
     let changed=false,remoteS=null;const remote={};
     snap.docs.forEach(x=>{const b=x.data();if(x.id==="settings")remoteS=b;else if(b&&b.c)Object.assign(remote,b.c)});
-    if(remoteS&&(remoteS.t||0)>(S.t||0)){S={...S,...remoteS};changed=true;saveLocal()}
+    if(remoteS&&(remoteS.t||0)>(S.t||0)){S={...S,...remoteS};changed=true;saveLocal();initVoice()}
     else if((S.t||0)>(remoteS?remoteS.t||0:0))settingsDirty=true;
     for(const w in P){if(P[w].t<(S.resetAt||0)){delete P[w];changed=true}}
     for(const w in remote){const r=remote[w];if(r[6]<(S.resetAt||0)){dirty.add(shardOf(w));continue}
@@ -370,9 +374,8 @@ async function connect(){
   }catch(e){db=null;setSync("Couldn't reach your account. Progress is saved on this device.")}
 }
 /* ---------- Start ---------- */
-try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
-if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
-loadLocal();cur=pick(Date.now());renderStudy();connect();
+loadLocal();try{initVoice()}catch(e){}
+cur=pick(Date.now());renderStudy();connect();
 window.__renzi={next,counts,pick,get P(){return P},set P(v){P=v},get S(){return S}};
 </script>
 </body></html>
