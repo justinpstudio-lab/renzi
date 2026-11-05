@@ -143,7 +143,7 @@ const cards=D.cards, chars=D.chars, order=new Map(cards.map((c,i)=>[c[0],i]));
 const allChars=new Set(); cards.forEach(c=>{for(const x of c[0])allChars.add(x)});
 const KEY="renzi.v1";
 let P={}; // word -> state
-let S={newPerDay:20,trad:false,auto:false,start:0,extraDay:0,extra:0,resetAt:0,t:0};
+let S={voice:"",rate:1,newPerDay:20,trad:false,auto:false,start:0,extraDay:0,extra:0,resetAt:0,t:0};
 function loadLocal(){try{const o=JSON.parse(localStorage.getItem(KEY)||"{}");if(o.p)P=o.p;if(o.s)S={...S,...o.s}}catch(e){}}
 function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify({p:P,s:S}))}catch(e){}}
 
@@ -197,9 +197,12 @@ function wordsWith(ch){
   return wordIndex.get(ch)||[];
 }
 let voice=null,canSpeak=false;
-function initVoice(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>/^zh[-_]CN/i.test(x.lang))||v.find(x=>/^zh/i.test(x.lang))||null;canSpeak=!!voice}catch(e){canSpeak=false}}
-try{if("speechSynthesis" in window){initVoice();speechSynthesis.onvoiceschanged=()=>{initVoice();if(flipped&&view==="study")renderStudy()}}}catch(e){}
-function speak(t){if(!canSpeak)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.voice=voice;u.lang=voice.lang;u.rate=.85;speechSynthesis.speak(u)}catch(e){}}
+let zhVoices=[];
+function voiceScore(v){const t=(v.name+" "+v.voiceURI).toLowerCase();return(/premium/.test(t)?40:/enhanced/.test(t)?30:/compact/.test(t)?0:10)+(/^zh[-_]cn/i.test(v.lang)?5:/^zh[-_]tw/i.test(v.lang)?2:0)}
+function voiceLabel(v){const t=(v.name+" "+v.voiceURI).toLowerCase(),q=/premium/.test(t)?"Premium":/enhanced/.test(t)?"Enhanced":"";const n=v.name.replace(/\s*\((premium|enhanced)\)\s*/i," ").trim();return n+(q?" ("+q+")":"")+" · "+v.lang.replace("_","-")}
+function initVoice(){try{zhVoices=speechSynthesis.getVoices().filter(x=>/^(zh|cmn)/i.test(x.lang)).sort((a,b)=>voiceScore(b)-voiceScore(a));voice=zhVoices.find(x=>x.voiceURI===S.voice)||zhVoices[0]||null;canSpeak=!!voice}catch(e){canSpeak=false}}
+try{if("speechSynthesis" in window){initVoice();speechSynthesis.onvoiceschanged=()=>{initVoice();if(view==="settings")renderSettings();else if(flipped)renderStudy()}}}catch(e){}
+function speak(t){if(!canSpeak)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.voice=voice;u.lang=voice.lang;u.rate=S.rate||1;speechSynthesis.speak(u)}catch(e){}}
 
 function renderStudy(){
   stats();main.textContent="";
@@ -258,13 +261,19 @@ function renderSettings(){
   stats();main.textContent="";
   const p=el("section","panel");p.append(el("h2",null,"Settings"));
   const npd=el("div","field"),l1=el("label",null,"New words per day");l1.htmlFor="npd";
-  const s1=el("select");s1.id="npd";[5,10,20,30,50,100].forEach(n=>{const o=el("option",null,n);o.value=n;s1.append(o)});s1.value=S.newPerDay;
+  const s1=el("select");s1.id="npd";[5,10,20,30,50,75,100,150,200].forEach(n=>{const o=el("option",null,n);o.value=n;s1.append(o)});s1.value=S.newPerDay;
   s1.onchange=()=>{S.newPerDay=+s1.value;touchS();stats()};npd.append(l1,s1,el("p",null,"Reviews always come first, and you can add more when you finish."));
   const st=el("div","field"),l2=el("label",null,"Start new words at");l2.htmlFor="start";
   const s2=el("select");s2.id="start";[[0,"The beginning"],[300,"Word 300"],[1000,"Word 1,000"],[2000,"Word 2,000"],[3500,"Word 3,500"],[5000,"Word 5,000"],[8000,"Word 8,000"]].forEach(([v,t])=>{const o=el("option",null,t);o.value=v;s2.append(o)});s2.value=S.start||0;
   s2.onchange=()=>{S.start=+s2.value;touchS()};st.append(l2,s2,el("p",null,"Skip ahead if the first cards are too easy. Anything skipped comes back only after the rest of the deck."));
   const sc=el("label","check"),c1=el("input");c1.type="checkbox";c1.id="trad";c1.checked=S.trad;c1.onchange=()=>{S.trad=c1.checked;touchS()};sc.append(c1,"Show traditional characters");
   const au=el("label","check"),c2=el("input");c2.type="checkbox";c2.id="auto";c2.checked=S.auto;c2.onchange=()=>{S.auto=c2.checked;touchS()};au.append(c2,canSpeak?"Play the word when the card flips":"Play the word when the card flips (no Chinese voice on this device)");c2.disabled=!canSpeak;
+  const vf=el("div","field");
+  if(canSpeak){const l3=el("label",null,"Voice");l3.htmlFor="voice";const s3=el("select");s3.id="voice";zhVoices.forEach(v=>{const o=el("option",null,voiceLabel(v));o.value=v.voiceURI;s3.append(o)});s3.value=voice.voiceURI;
+    s3.onchange=()=>{S.voice=s3.value;initVoice();touchS();speak("你好，认字")};
+    const l4=el("label",null,"Speed");l4.htmlFor="rate";const s4=el("select");s4.id="rate";[[.8,"Slower"],[.9,"A little slower"],[1,"Normal"],[1.1,"A little faster"]].forEach(([v,t])=>{const o=el("option",null,t);o.value=v;s4.append(o)});s4.value=S.rate||1;s4.onchange=()=>{S.rate=+s4.value;touchS();speak("你好，认字")};
+    const tb=el("button","pill","Test voice");tb.type="button";tb.style.justifySelf="start";tb.onclick=()=>speak("你好，认字");
+    vf.append(l3,s3,l4,s4,tb,el("p",null,"The best voice on this device is picked automatically. For a smoother one, download an Enhanced or Premium Chinese voice in your iPhone's Settings, under Accessibility, Spoken Content, Voices."))}
   const back=el("button","pill","Back to cards");back.type="button";back.style.justifySelf="start";back.onclick=()=>toggle();
   const rs=el("div","field"),rb=el("button","danger","Reset all progress");rb.type="button";
   rb.onclick=()=>{if(rb.dataset.armed){reset();toggle()}else{rb.dataset.armed=1;rb.textContent="Tap again to erase everything"}};
@@ -280,7 +289,7 @@ function renderSettings(){
   const op=el("button","pill","Open backup file");op.type="button";op.onclick=()=>fi.click();
   const rb2=el("button","pill","Restore pasted backup");rb2.type="button";rb2.onclick=()=>{msg.textContent=restore(ta.value);stats()};
   br.append(op,rb2);bk.append(br,ta,fi,msg);
-  p.append(npd,st,sc,au,back,bk,rs,el("p","credit","Word order from SUBTLEX-CH film and TV subtitle frequencies, adjusted with HSK levels. Readings and meanings from CC-CEDICT (CC BY-SA 4.0). Character list blends SUBTLEX-CH and Jun Da's written corpus."));
+  p.append(npd,st,sc,au,vf,back,bk,rs,el("p","credit","Word order from SUBTLEX-CH film and TV subtitle frequencies, adjusted with HSK levels. Readings and meanings from CC-CEDICT (CC BY-SA 4.0). Character list blends SUBTLEX-CH and Jun Da's written corpus."));
   main.append(p);
 }
 function toggle(){view=view==="study"?"settings":"study";$("gear").setAttribute("aria-expanded",view==="settings");$("gear").textContent=view==="settings"?"Cards":"Settings";if(view==="settings")renderSettings();else advance(true)}
